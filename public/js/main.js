@@ -99,7 +99,6 @@ function closing() {
 
 // utils
 function createPeerConnection() {
-  console.log("create peer connection ...");
   peer = new RTCPeerConnection();
   peer.onicecandidate = handleIceCandidate;
   peer.ontrack = handleRemoteStream;
@@ -113,8 +112,10 @@ function createPeerConnection() {
 async function handleNegotiationNeeded() {
   console.log("*** handleNegotiationNeeded fired!");
   try {
-    console.log("start createOffer ...");
+    console.log("createOffer ...");
+    console.log("setLocalDescription ...");
     await peer.setLocalDescription(await peer.createOffer(offerOptions));
+    console.log("signaling offer ...");
     sendSDPBySignaling("offer", peer.localDescription);
   } catch (error) {
     console.log(`Failed to create session description: ${error.toString()}`);
@@ -166,13 +167,13 @@ function handleRemoteStream(event) {
 }
 
 async function getUserStream() {
-  console.log("獲取 local media stream 中 ...");
+  console.log("getUserMedia ...");
   if ("mediaDevices" in navigator) {
     const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+    cacheStream = stream;
 
     const localVideo = document.getElementById("localVideo");
-    localVideo.srcObject = stream;
-    cacheStream = stream;
+    localVideo.srcObject = cacheStream;
   }
 }
 
@@ -201,8 +202,8 @@ async function handleSDPOffer(desc) {
     if (!peer) {
       createPeerConnection();
     }
-    
-    console.log(" = 設定 remote description = ");
+
+    console.log("setRemoteDescription ...");
     await peer.setRemoteDescription(desc);
 
     if (!cacheStream) {
@@ -219,6 +220,7 @@ async function handleSDPOffer(desc) {
 async function handleSDPAnswer(desc) {
   console.log("*** 遠端接受我們的offer並發送answer回來");
   try {
+    console.log("setRemoteDescription ...");
     await peer.setRemoteDescription(desc)
   } catch (error) {
     console.log(`Error ${error.name}: ${error.message}`);
@@ -226,9 +228,11 @@ async function handleSDPAnswer(desc) {
 }
 async function createAnswer() {
   try {
-    console.log("create answer ...");
+    console.log("createAnswer ...");
     const answer = await peer.createAnswer();
+    console.log("setLocalDescription ...");
     await peer.setLocalDescription(answer);
+    console.log("signaling answer ...");
     sendSDPBySignaling("answer", answer);
   } catch (error) {
     errMsg = "Create Answer error ===> " + error.toString();
