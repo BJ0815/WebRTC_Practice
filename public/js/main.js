@@ -1,6 +1,7 @@
 let peer;
 let cacheStream;
 let socket;
+let dataChannel;
 
 const offerOptions = {
   offerToReceiveAudio: 1,
@@ -44,7 +45,9 @@ function connection() {
   socket.on("icecandidate", handleNewIceCandidate);
   return socket;
 }
-
+function closeDataChannels(channel) {
+  channel.close()
+}
 async function calling() {
   try {
     if (peer) {
@@ -94,6 +97,7 @@ function closing() {
   peer.close();
   peer = null;
   cacheStream = null;
+  dataChannel = null;
 }
 // core functions end
 
@@ -107,6 +111,90 @@ function createPeerConnection() {
   peer.oniceconnectionstatechange = handleICEConnectionStateChange;
   peer.onicegatheringstatechange = handleICEGatheringStateChange;
   peer.onsignalingstatechange = handleSignalingStateChange;
+
+  peer.ondatachannel = handleDataChannel;
+  dataChannel = peer.createDataChannel("my local channel");
+}
+
+function handleDataChannel (event) {
+  console.log("Receive Data Channel Callback", event);
+  const receiveChannel = event.channel;
+  
+  receiveChannel.onmessage = onReceiveMessageCallback;
+  receiveChannel.onopen = onChannelStageChange(receiveChannel);
+  receiveChannel.onclose = onChannelStageChange(receiveChannel);
+}
+
+function onChannelStageChange(channel) {
+  const readyState = channel.readyState;
+  console.log('Channel Stage Change ==> ', channel)
+  console.log(`channel state is: ${readyState}`);
+}
+
+function onReceiveMessageCallback(event) {
+  const type = event.target.label
+
+  if (type === 'FileChannel') onReceiveFile(event)
+  else console.log("Received Message ==> ", event.data);
+}
+
+let receiveBuffer = [];
+let receivedSize = 0;
+function onReceiveFile(event) {
+  console.log("Received Message", event);
+  console.log(`Received Message ${event.data.byteLength}`);
+  receiveBuffer.push(event.data);
+  receivedSize += event.data.byteLength;
+
+  const receiveProgress = document.querySelector('progress#receiveProgress');
+  receiveProgress.value = receivedSize;
+}
+
+function sendMessage() {
+  const textArea = document.querySelector('#dataChannelSend')
+  if (dataChannel.readyState === 'open') dataChannel.send(textArea.value)
+}
+
+function sendFileData() {
+
+  const fileInput = document.querySelector('input#fileInput');
+  const file = fileInput.files[0];
+  console.log(`File is ${[file.name, file.size, file.type, file.lastModified].join(' ')}`);
+
+  // Handle 0 size files.
+  if (file.size === 0) {
+    alert('File is empty, please select a non-empty file');
+    return;
+  }
+
+  const fileChannel = peer.createDataChannel('FileChannel')
+  fileChannel.onopen = () => {
+
+    const sendProgress = document.querySelector('progress#sendProgress');
+    sendProgress.max = file.size;
+    const chunkSize = 16384;
+    const fileReader = new FileReader();
+    let offset = 0;
+    fileReader.addEventListener('error', error => console.error('Error reading file:', error));
+    fileReader.addEventListener('abort', event => console.log('File reading aborted:', event));
+    fileReader.addEventListener('load', e => {
+      console.log('FileRead.onload ', e);
+      fileChannel.send(e.target.result);
+      offset += e.target.result.byteLength;
+      sendProgress.value = offset;
+      if (offset < file.size) {
+        readSlice(offset);
+      }
+    });
+    const readSlice = o => {
+      console.log('readSlice ', o);
+      const slice = file.slice(offset, o + chunkSize);
+      fileReader.readAsArrayBuffer(slice);
+    };
+    readSlice(0);
+  }
+
+  fileChannel.onclose = () => console.log('closing File Channel')
 }
 
 async function handleNegotiationNeeded() {
